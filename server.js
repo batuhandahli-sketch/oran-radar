@@ -13,7 +13,6 @@ app.use(express.static(__dirname));
 const DB_PATH = path.join(__dirname, 'matches.sqlite');
 const db = new sqlite3.Database(DB_PATH);
 
-// Tarih bazlı veri önbelleği
 const dataCache = new Map();
 
 async function fetchForDate(dateStr) {
@@ -41,14 +40,11 @@ app.get('/api/analyze', async (req, res) => {
     const todayStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
     const targetDate = date || todayStr;
 
-    // Mackolik'ten maçları çek
     const targetMatches = await fetchForDate(targetDate);
 
-    // Veritabanından referans maçları al
     db.all(`SELECT * FROM matches WHERE home_odds > 0 ORDER BY id DESC LIMIT 5000`, (err, history) => {
         if (err) return res.status(500).json({ ok: false, error: err.message });
 
-        // 1. Analiz Listesi
         const analyses = targetMatches.map(m => {
             const league = m[36] || [];
             if (sport !== "all" && String(league[11]) !== String(sport)) return null;
@@ -66,7 +62,6 @@ app.get('/api/analyze', async (req, res) => {
                     id: m[0], home: m[2], away: m[4], time: m[16] || "00:00", date: m[35] || "",
                     league: { name: league[3] || "", country: league[1] || "" },
                     odds: { one: h, draw: d, two: a, under25: 1.80, over25: 1.90 },
-                    iddaaCodeSum: null, // Canlı maçta kod toplamı arşivden eşleşirse altta görünecek
                     statusText: m[6] || "", finished: /(MS|UZ|PEN)/.test(m[6])
                 },
                 summary: {
@@ -74,7 +69,7 @@ app.get('/api/analyze', async (req, res) => {
                     homeWin: Math.round((closestMatches.filter(c => c.home_score > c.away_score).length / closestMatches.length) * 100) || 0,
                     draw: Math.round((closestMatches.filter(c => c.home_score === c.away_score).length / closestMatches.length) * 100) || 0,
                     awayWin: Math.round((closestMatches.filter(c => c.home_score < c.away_score).length / closestMatches.length) * 100) || 0,
-                    averageGoals: 2.5, signal: closestMatches.length > 0 ? 'Tamam' : 'Yok', confidence: 'Orta'
+                    signal: closestMatches.length > 0 ? 'Tamam' : 'Yok', confidence: 'Orta'
                 },
                 closest: closestMatches.slice(0, 10).map(c => ({
                     id: c.id, home: c.home_team, away: c.away_team, date: c.date, scoreText: `${c.home_score}-${c.away_score}`, similarity: 100
@@ -82,7 +77,6 @@ app.get('/api/analyze', async (req, res) => {
             };
         }).filter(x => x !== null);
 
-        // 2. Oran ve Kod Grupları
         const oddsTotalMap = new Map();
         const codeSumMap = new Map();
 
@@ -99,7 +93,6 @@ app.get('/api/analyze', async (req, res) => {
                 og.matches.push({ id: m[0], home: m[2], away: m[4], time: m[16] || "00:00", scoreText: `${m[12] || 0}-${m[13] || 0}`, odds: { one: h, draw: d, two: a } });
             }
 
-            // Arşivle kod eşleştirme
             const dbMatch = history.find(hMatch => String(hMatch.home_team) === String(m[2]) && String(hMatch.away_team) === String(m[4]));
             if (dbMatch && dbMatch.iddaa_code_sum) {
                 const s = dbMatch.iddaa_code_sum;
