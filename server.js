@@ -14,44 +14,31 @@ const DB_PATH = path.join(__dirname, 'matches.sqlite');
 const db = new sqlite3.Database(DB_PATH);
 
 let liveMatches = [];
-let lastUpdate = "Henüz veri çekilmedi";
-let lastError = null;
+let lastUpdate = "-";
 
 async function fetchLive() {
     try {
         const now = new Date();
         const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-        
-        // Mackolik bazen botlari engeller, user-agent ekliyoruz
         const response = await fetch(`https://vd.mackolik.com/livedata?date=${encodeURIComponent(dateStr)}`, {
             headers: { 
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
                 "Referer": "https://www.mackolik.com/"
             }
         });
-
-        if (!response.ok) throw new Error(`HTTP Hata: ${response.status}`);
-        
         const data = await response.json();
         if (data && data.m) {
             liveMatches = data.m;
             lastUpdate = new Date().toLocaleTimeString('tr-TR');
-            lastError = null;
-            console.log(`Veri basariyla cekildi: ${liveMatches.length} maç`);
         }
-    } catch (e) {
-        lastError = e.message;
-        console.error("Veri cekme hatasi:", e.message);
-    }
+    } catch (e) { console.error("Hata:", e.message); }
 }
 
-// Periyodik yenileme
 setInterval(fetchLive, 60000);
 fetchLive();
 
 app.get('/api/health', (req, res) => {
-    res.json({ ok: true, lastUpdate, error: lastError, liveCount: liveMatches.length });
+    res.json({ ok: true, lastUpdate, liveCount: liveMatches.length });
 });
 
 app.get('/api/analyze', (req, res) => {
@@ -63,8 +50,7 @@ app.get('/api/analyze', (req, res) => {
 
         const analyses = liveMatches.map(m => {
             const league = m[36] || [];
-            const matchSportId = league[11];
-            if (sport !== "all" && String(matchSportId) !== String(sport)) return null;
+            if (sport !== "all" && String(league[11]) !== String(sport)) return null;
 
             const h = parseFloat(String(m[18] || "").replace(',', '.'));
             const d = parseFloat(String(m[19] || "").replace(',', '.'));
@@ -83,8 +69,7 @@ app.get('/api/analyze', (req, res) => {
                     league: { name: league[3] || "", country: league[1] || "" },
                     odds: { one: h, draw: d, two: a, under25: 1.80, over25: 1.90 },
                     probabilities: { one: 0.4, draw: 0.3, two: 0.3, under25: 0.5, over25: 0.5 },
-                    margin: { oneXTwo: 0.05 },
-                    statusText: m[6] || "", finished: /(MS|UZ|PEN)/.test(m[6])
+                    margin: { oneXTwo: 0.05 }, statusText: m[6] || "", finished: /(MS|UZ|PEN)/.test(m[6])
                 },
                 summary: {
                     count: closestMatches.length,
@@ -103,8 +88,30 @@ app.get('/api/analyze', (req, res) => {
             };
         }).filter(x => x !== null);
 
-        res.json({ ok: true, analyses, coverage: { targetMatches: analyses.length, updatedAt: lastUpdate } });
+        // Kod Toplamları
+        const codeSumMap = new Map();
+        history.forEach(m => {
+            if (!m.iddaa_code_sum) return;
+            const sum = m.iddaa_code_sum;
+            if (!codeSumMap.has(sum)) codeSumMap.set(sum, { sum: sum, count: 0, codes: new Set(), matches: [] });
+            const group = codeSumMap.get(sum);
+            group.count++; group.codes.add(m.iddaa_code);
+            group.matches.push({ id: m.id, home: m.home_team, away: m.away_team, scoreText: `${m.home_score}-${m.away_score}`, iddaaCode: m.iddaa_code });
+        });
+        const iddaaCodeGroups = Array.from(codeSumMap.values()).filter(g => g.count > 1).map(g => ({ ...g, codes: Array.from(g.codes).sort(), matches: g.matches.slice(0, 10) })).sort((a, b) => b.count - a.count);
+
+        // Oran Toplamları
+        const oddsTotalMap = new Map();
+        history.slice(0, 500).forEach(m => {
+            const sum = (m.home_odds + m.draw_odds + m.away_odds).toFixed(2);
+            if (!oddsTotalMap.has(sum)) oddsTotalMap.set(sum, { totalText: sum, count: 0, matches: [] });
+            const group = oddsTotalMap.get(sum);
+            group.count++; group.matches.push({ id: m.id, home: m.home_team, away: m.away_team, scoreText: `${m.home_score}-${m.away_score}`, odds: { one: m.home_odds, draw: m.draw_odds, two: m.away_odds } });
+        });
+        const oddsTotalGroups = Array.from(oddsTotalMap.values()).filter(g => g.count > 1).sort((a, b) => b.count - a.count);
+
+        res.json({ ok: true, analyses, iddaaCodeGroups, oddsTotalGroups, coverage: { targetMatches: analyses.length, updatedAt: lastUpdate } });
     });
 });
 
-app.listen(port, () => { console.log(`Oran Radar LIVE running on ${port}`); });
+app.listen(port, () => { console.log(`Oran Radar FULL running on ${port}`); });
