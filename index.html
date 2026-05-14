@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Mackolik canlı oran analizi, benzer maç geçmişi ve iddaa kod grupları.">
+    <title>Oran Radar — Mackolik Analiz Panosu</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+      try {
+        const theme = localStorage.getItem("oran-radar-theme") || "dark";
+        document.documentElement.dataset.theme = theme;
+      } catch {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
+    <link rel="stylesheet" href="/styles.css">
+    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <!-- Animated background -->
+    <div class="bg-orbs" aria-hidden="true">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Top navigation bar -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="2"/>
+            <path d="M12 2a10 10 0 0 1 10 10"/>
+            <path d="M12 2a10 10 0 0 0-10 10"/>
+            <path d="M12 22a10 10 0 0 0 10-10"/>
+            <path d="M12 22a10 10 0 0 1-10-10"/>
+            <path d="M12 8a4 4 0 0 1 4 4"/>
+            <path d="M8 12a4 4 0 0 1 4-4"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Oran Radar</h1>
+          <p>Mackolik · Canlı Analiz Panosu</p>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <!-- Theme switcher -->
+        <div class="theme-switch" role="group" aria-label="Tema seçimi">
+          <button class="theme-option" data-theme="light" type="button" title="Gündüz modu">
+            <i data-lucide="sun"></i>
+          </button>
+          <button class="theme-option" data-theme="dark" type="button" title="Gece modu">
+            <i data-lucide="moon"></i>
+          </button>
+        </div>
+
+        <!-- Connection status -->
+        <div class="status-pill" id="connectionStatus">
+          <span class="pulse-dot"></span>
+          <span class="status-text">Hazırlanıyor</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- Controls -->
+      <section class="controls glass-card" aria-label="Analiz ayarları">
+        <div class="controls-row">
+          <label class="field" for="dateInput">
+            <span class="field-label"><i data-lucide="calendar"></i> Tarih</span>
+            <input id="dateInput" type="date" class="field-input">
+          </label>
+
+          <label class="field compact" for="daysInput">
+            <span class="field-label"><i data-lucide="history"></i> Geçmiş</span>
+            <input id="daysInput" type="number" min="1" max="180" value="30" class="field-input">
+          </label>
+
+          <label class="field range-field">
+            <span class="field-label">
+              <i data-lucide="sliders-horizontal"></i>
+              Maks Oran Farkı <strong id="toleranceLabel" class="tolerance-val">%5</strong>
+            </span>
+            <input id="toleranceInput" type="range" min="1" max="25" step="1" value="5">
+          </label>
+
+          <div class="segmented" role="group" aria-label="Spor filtresi">
+            <button class="segment active" data-sport="1" type="button">
+              <i data-lucide="trophy"></i> Futbol
+            </button>
+            <button class="segment" data-sport="all" type="button">
+              <i data-lucide="layers"></i> Tümü
+            </button>
+          </div>
+
+          <label class="toggle-wrap" title="Yalnızca aynı ligdeki geçmiş maçları karşılaştır">
+            <input id="sameLeagueInput" type="checkbox" class="toggle-input">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label">Aynı lig</span>
+          </label>
+
+          <label class="toggle-wrap" title="Her dakika otomatik yenile">
+            <input id="autoRefreshInput" type="checkbox" checked class="toggle-input">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label">Otomatik</span>
+          </label>
+
+          <button class="refresh-btn" id="refreshButton" type="button">
+            <i data-lucide="refresh-cw"></i>
+            <span>Yenile</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Metrics row -->
+      <section class="metrics-row" aria-label="Özet istatistikler">
+        <article class="metric-card glass-card">
+          <div class="metric-icon" style="--c:#6366f1"><i data-lucide="calendar-days"></i></div>
+          <div class="metric-body">
+            <span class="metric-label">Bugünkü Maç</span>
+            <strong class="metric-value" id="metricMatches">—</strong>
+          </div>
+        </article>
+        <article class="metric-card glass-card">
+          <div class="metric-icon" style="--c:#10b981"><i data-lucide="percent"></i></div>
+          <div class="metric-body">
+            <span class="metric-label">Oranlı Maç</span>
+            <strong class="metric-value" id="metricOdds">—</strong>
+          </div>
+        </article>
+        <article class="metric-card glass-card">
+          <div class="metric-icon" style="--c:#f59e0b"><i data-lucide="archive"></i></div>
+          <div class="metric-body">
+            <span class="metric-label">Geçmiş Örnek</span>
+            <strong class="metric-value" id="metricHistory">—</strong>
+          </div>
+        </article>
+        <article class="metric-card glass-card">
+          <div class="metric-icon" style="--c:#ec4899"><i data-lucide="hash"></i></div>
+          <div class="metric-body">
+            <span class="metric-label">Kod Grubu</span>
+            <strong class="metric-value" id="metricCodeGroups">—</strong>
+          </div>
+        </article>
+        <article class="metric-card glass-card">
+          <div class="metric-icon" style="--c:#14b8a6"><i data-lucide="calculator"></i></div>
+          <div class="metric-body">
+            <span class="metric-label">Oran Toplamı Grubu</span>
+            <strong class="metric-value" id="metricOddsTotalGroups">—</strong>
+          </div>
+        </article>
+        <article class="metric-card glass-card">
+          <div class="metric-icon" style="--c:#8b5cf6"><i data-lucide="clock"></i></div>
+          <div class="metric-body">
+            <span class="metric-label">Son Güncelleme</span>
+            <strong class="metric-value" id="metricUpdated">—</strong>
+          </div>
+        </article>
+      </section>
+
+      <!-- View tabs -->
+      <nav class="view-tabs glass-card" role="tablist" aria-label="Görünüm">
+        <button class="view-tab active" type="button" role="tab" aria-selected="true" data-view="code">
+          <i data-lucide="hash"></i>
+          <span>Kod Toplamı</span>
+        </button>
+        <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="analysis">
+          <i data-lucide="radar"></i>
+          <span>Maç Analizi</span>
+        </button>
+        <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="odds">
+          <i data-lucide="calculator"></i>
+          <span>Oran Toplamı</span>
+        </button>
+      </nav>
+
+      <!-- === KOD TOPLAMI PANELİ === -->
+      <section class="tab-panel" data-view-panel="code">
+        <div class="panel-header glass-card">
+          <div class="panel-header-left">
+            <div class="panel-icon" style="--c:#ec4899"><i data-lucide="hash"></i></div>
+            <div>
+              <h2>İddaa Kod Toplamı</h2>
+              <p id="codeGroupsLabel">Yükleniyor…</p>
+            </div>
+          </div>
+        </div>
+        <div class="code-groups-grid" id="codeGroups"></div>
+      </section>
+
+      <!-- === ORAN TOPLAMI PANELİ === -->
+      <section class="tab-panel hidden" data-view-panel="odds">
+        <div class="panel-header glass-card">
+          <div class="panel-header-left">
+            <div class="panel-icon" style="--c:#14b8a6"><i data-lucide="calculator"></i></div>
+            <div>
+              <h2>Oran Toplamları Aynı Maçlar</h2>
+              <p id="oddsTotalGroupsLabel">Yükleniyor…</p>
+            </div>
+          </div>
+        </div>
+        <div class="code-groups-grid" id="oddsTotalGroups"></div>
+      </section>
+
+      <!-- === MAÇ ANALİZİ PANELİ === -->
+      <section class="workspace tab-panel hidden" data-view-panel="analysis">
+        <!-- Match list sidebar -->
+        <aside class="match-sidebar glass-card">
+          <div class="sidebar-header">
+            <div class="sidebar-title">
+              <i data-lucide="list"></i>
+              <h2>Maçlar</h2>
+            </div>
+            <p id="matchCountLabel">—</p>
+          </div>
+          <div class="search-wrap">
+            <i data-lucide="search"></i>
+            <input id="searchInput" type="search" placeholder="Takım veya lig ara…">
+          </div>
+          <div class="match-list" id="matchList"></div>
+        </aside>
+
+        <!-- Analysis detail panel -->
+        <section class="analysis-detail glass-card" aria-live="polite">
+          <!-- Empty state -->
+          <div class="empty-state" id="emptyState">
+            <div class="empty-radar">
+              <div class="radar-ring r1"></div>
+              <div class="radar-ring r2"></div>
+              <div class="radar-ring r3"></div>
+              <i data-lucide="radar"></i>
+            </div>
+            <h2>Maç Seçin</h2>
+            <p>Soldan bir maç seçin; benzer oran profilleri ve istatistikler burada görünür.</p>
+          </div>
+
+          <!-- Analysis content -->
+          <div class="analysis-content hidden" id="analysisContent">
+            <!-- Match hero -->
+            <div class="match-hero">
+              <div class="hero-left">
+                <span class="league-badge" id="selectedLeague">—</span>
+                <h2 id="selectedTitle">—</h2>
+                <p id="selectedMeta" class="hero-meta">—</p>
+              </div>
+              <div class="signal-card">
+                <span class="signal-confidence" id="signalConfidence">—</span>
+                <strong class="signal-text" id="signalText">—</strong>
+              </div>
+            </div>
+
+            <!-- Odds strip -->
+            <div class="odds-strip" id="oddsStrip"></div>
+
+            <!-- Stats grid -->
+            <div class="stats-grid">
+              <article class="stat-block glass-card">
+                <div class="stat-block-header">
+                  <h3><i data-lucide="bar-chart-2"></i> Sonuç Eğilimi</h3>
+                  <span class="badge" id="sampleBadge">0 örnek</span>
+                </div>
+                <div class="bars" id="outcomeBars"></div>
+              </article>
+
+              <article class="stat-block glass-card">
+                <div class="stat-block-header">
+                  <h3><i data-lucide="goal"></i> Gol Pazarı</h3>
+                  <span class="badge" id="goalBadge">—</span>
+                </div>
+                <div class="bars" id="goalBars"></div>
+              </article>
+            </div>
+
+            <!-- Similar matches table -->
+            <article class="similar-block glass-card">
+              <div class="stat-block-header">
+                <h3><i data-lucide="git-branch"></i> En Yakın Benzer Maçlar</h3>
+                <span class="badge" id="closestBadge">—</span>
+              </div>
+              <div class="similar-table" id="similarTable"></div>
+            </article>
+
+            <p class="disclaimer">Veriler Mackolik livedata akışından okunur. Oran benzerliği istatistiktir; kesin sonuç veya yatırım tavsiyesi değildir.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <!-- Loading overlay -->
+    <div class="loading-bar" id="loadingBar" aria-hidden="true">
+      <div class="loading-progress"></div>
+    </div>
+  </body>
+</html>
