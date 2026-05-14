@@ -21,10 +21,7 @@ async function fetchLive() {
         const now = new Date();
         const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
         const response = await fetch(`https://vd.mackolik.com/livedata?date=${encodeURIComponent(dateStr)}`, {
-            headers: { 
-                "User-Agent": "Mozilla/5.0",
-                "Referer": "https://www.mackolik.com/"
-            }
+            headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://www.mackolik.com/" }
         });
         const data = await response.json();
         if (data && data.m) {
@@ -36,10 +33,6 @@ async function fetchLive() {
 
 setInterval(fetchLive, 60000);
 fetchLive();
-
-app.get('/api/health', (req, res) => {
-    res.json({ ok: true, lastUpdate, liveCount: liveMatches.length });
-});
 
 app.get('/api/analyze', (req, res) => {
     const { tolerance = 5, sport = "1" } = req.query;
@@ -96,22 +89,33 @@ app.get('/api/analyze', (req, res) => {
             if (!codeSumMap.has(sum)) codeSumMap.set(sum, { sum: sum, count: 0, codes: new Set(), matches: [] });
             const group = codeSumMap.get(sum);
             group.count++; group.codes.add(m.iddaa_code);
-            group.matches.push({ id: m.id, home: m.home_team, away: m.away_team, scoreText: `${m.home_score}-${m.away_score}`, iddaaCode: m.iddaa_code });
+            group.matches.push({ id: m.id, home: m.home_team, away: m.away_team, time: '20:00', scoreText: `${m.home_score}-${m.away_score}`, iddaaCode: m.iddaa_code });
         });
         const iddaaCodeGroups = Array.from(codeSumMap.values()).filter(g => g.count > 1).map(g => ({ ...g, codes: Array.from(g.codes).sort(), matches: g.matches.slice(0, 10) })).sort((a, b) => b.count - a.count);
 
         // Oran Toplamları
         const oddsTotalMap = new Map();
-        history.slice(0, 500).forEach(m => {
-            const sum = (m.home_odds + m.draw_odds + m.away_odds).toFixed(2);
+        history.forEach(m => {
+            const h = parseFloat(m.home_odds);
+            const d = parseFloat(m.draw_odds);
+            const a = parseFloat(m.away_odds);
+            if (!h || !d || !a) return; // 0 oranlı maçları atla
+
+            const sum = (h + d + a).toFixed(2);
             if (!oddsTotalMap.has(sum)) oddsTotalMap.set(sum, { totalText: sum, count: 0, matches: [] });
             const group = oddsTotalMap.get(sum);
-            group.count++; group.matches.push({ id: m.id, home: m.home_team, away: m.away_team, scoreText: `${m.home_score}-${m.away_score}`, odds: { one: m.home_odds, draw: m.draw_odds, two: m.away_odds } });
+            group.count++; 
+            group.matches.push({ 
+                id: m.id, home: m.home_team, away: m.away_team, 
+                time: '20:00', // Gecmis maclar icin sabit saat
+                scoreText: `${m.home_score}-${m.away_score}`, 
+                odds: { one: h, draw: d, two: a } 
+            });
         });
-        const oddsTotalGroups = Array.from(oddsTotalMap.values()).filter(g => g.count > 1).sort((a, b) => b.count - a.count);
+        const oddsTotalGroups = Array.from(oddsTotalMap.values()).filter(g => g.count > 1).sort((a, b) => b.count - a.count).slice(0, 50);
 
         res.json({ ok: true, analyses, iddaaCodeGroups, oddsTotalGroups, coverage: { targetMatches: analyses.length, updatedAt: lastUpdate } });
     });
 });
 
-app.listen(port, () => { console.log(`Oran Radar FULL running on ${port}`); });
+app.listen(port, () => { console.log(`Oran Radar Cloud running on ${port}`); });
