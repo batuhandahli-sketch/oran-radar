@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
@@ -10,7 +9,9 @@ const port = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Dosyalar ana dizinde olduğu için direkt buradan servis ediyoruz
+app.use(express.static(__dirname));
 
 const DB_PATH = path.join(__dirname, 'matches.sqlite');
 const db = new sqlite3.Database(DB_PATH);
@@ -26,7 +27,6 @@ app.get('/api/analyze', (req, res) => {
     db.all(`SELECT * FROM matches ORDER BY id DESC LIMIT 2000`, (err, history) => {
         if (err) return res.status(500).json({ ok: false, error: err.message });
 
-        // Build Analyses (Today's matches simulated from recent history for demo)
         const analyses = history.slice(0, 50).map(m => {
             const h = m.home_odds;
             const d = m.draw_odds;
@@ -78,7 +78,6 @@ app.get('/api/analyze', (req, res) => {
             };
         });
 
-        // Iddaa Code Groups
         const codeSumMap = new Map();
         history.forEach(m => {
             if (!m.iddaa_code_sum) return;
@@ -105,7 +104,6 @@ app.get('/api/analyze', (req, res) => {
             .map(g => ({ ...g, codes: Array.from(g.codes).sort(), matches: g.matches.slice(0, 10) }))
             .sort((a, b) => b.count - a.count);
 
-        // Odds Total Groups
         const oddsTotalMap = new Map();
         history.slice(0, 500).forEach(m => {
             const sum = (m.home_odds + m.draw_odds + m.away_odds).toFixed(2);
