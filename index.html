@@ -1,299 +1,120 @@
-<!doctype html>
-<html lang="tr">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Mackolik canlı oran analizi, benzer maç geçmişi ve iddaa kod grupları.">
-    <title>Oran Radar — Mackolik Analiz Panosu</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script>
-      try {
-        const theme = localStorage.getItem("oran-radar-theme") || "dark";
-        document.documentElement.dataset.theme = theme;
-      } catch {
-        document.documentElement.dataset.theme = "dark";
-      }
-    </script>
-    <link rel="stylesheet" href="/styles.css">
-    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script defer src="/app.js"></script>
-  </head>
-  <body>
-    <!-- Animated background -->
-    <div class="bg-orbs" aria-hidden="true">
-      <div class="orb orb-1"></div>
-      <div class="orb orb-2"></div>
-      <div class="orb orb-3"></div>
-    </div>
+const express = require('express');
+const cors = require('cors');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
-    <!-- Top navigation bar -->
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="2"/>
-            <path d="M12 2a10 10 0 0 1 10 10"/>
-            <path d="M12 2a10 10 0 0 0-10 10"/>
-            <path d="M12 22a10 10 0 0 0 10-10"/>
-            <path d="M12 22a10 10 0 0 1-10-10"/>
-            <path d="M12 8a4 4 0 0 1 4 4"/>
-            <path d="M8 12a4 4 0 0 1 4-4"/>
-          </svg>
-        </div>
-        <div class="brand-text">
-          <h1>Oran Radar</h1>
-          <p>Mackolik · Canlı Analiz Panosu</p>
-        </div>
-      </div>
+const app = express();
+const port = process.env.PORT || 10000;
 
-      <div class="top-actions">
-        <!-- Theme switcher -->
-        <div class="theme-switch" role="group" aria-label="Tema seçimi">
-          <button class="theme-option" data-theme="light" type="button" title="Gündüz modu">
-            <i data-lucide="sun"></i>
-          </button>
-          <button class="theme-option" data-theme="dark" type="button" title="Gece modu">
-            <i data-lucide="moon"></i>
-          </button>
-        </div>
+app.use(cors());
+app.use(express.json());
+app.use(express.static(__dirname));
 
-        <!-- Connection status -->
-        <div class="status-pill" id="connectionStatus">
-          <span class="pulse-dot"></span>
-          <span class="status-text">Hazırlanıyor</span>
-        </div>
-      </div>
-    </header>
+const DB_PATH = path.join(__dirname, 'matches.sqlite');
+const db = new sqlite3.Database(DB_PATH);
 
-    <main>
-      <!-- Controls -->
-      <section class="controls glass-card" aria-label="Analiz ayarları">
-        <div class="controls-row">
-          <label class="field" for="dateInput">
-            <span class="field-label"><i data-lucide="calendar"></i> Tarih</span>
-            <input id="dateInput" type="date" class="field-input">
-          </label>
+let liveMatches = [];
+let lastUpdate = "-";
 
-          <label class="field compact" for="daysInput">
-            <span class="field-label"><i data-lucide="history"></i> Geçmiş</span>
-            <input id="daysInput" type="number" min="1" max="180" value="30" class="field-input">
-          </label>
+async function fetchLive() {
+    try {
+        const ts = Date.now();
+        const now = new Date();
+        const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+        const response = await fetch(`https://vd.mackolik.com/livedata?date=${encodeURIComponent(dateStr)}&_=${ts}`, {
+            headers: { "User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache" }
+        });
+        const data = await response.json();
+        if (data && data.m) {
+            liveMatches = data.m;
+            lastUpdate = new Date().toLocaleTimeString('tr-TR');
+            console.log(`CANLI VERI: ${liveMatches.length} maç`);
+        }
+    } catch (e) { console.error("Hata:", e.message); }
+}
 
-          <label class="field range-field">
-            <span class="field-label">
-              <i data-lucide="sliders-horizontal"></i>
-              Maks Oran Farkı <strong id="toleranceLabel" class="tolerance-val">%5</strong>
-            </span>
-            <input id="toleranceInput" type="range" min="1" max="25" step="1" value="5">
-          </label>
+setInterval(fetchLive, 30000);
+fetchLive();
 
-          <div class="segmented" role="group" aria-label="Spor filtresi">
-            <button class="segment active" data-sport="1" type="button">
-              <i data-lucide="trophy"></i> Futbol
-            </button>
-            <button class="segment" data-sport="all" type="button">
-              <i data-lucide="layers"></i> Tümü
-            </button>
-          </div>
+app.get('/api/analyze', (req, res) => {
+    const { tolerance = 5, sport = "1" } = req.query;
+    const t = parseFloat(tolerance) / 100;
 
-          <label class="toggle-wrap" title="Yalnızca aynı ligdeki geçmiş maçları karşılaştır">
-            <input id="sameLeagueInput" type="checkbox" class="toggle-input">
-            <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            <span class="toggle-label">Aynı lig</span>
-          </label>
+    db.all(`SELECT * FROM matches WHERE home_odds > 0 ORDER BY id DESC LIMIT 2000`, (err, history) => {
+        if (err) return res.status(500).json({ ok: false, error: err.message });
 
-          <label class="toggle-wrap" title="Her dakika otomatik yenile">
-            <input id="autoRefreshInput" type="checkbox" checked class="toggle-input">
-            <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            <span class="toggle-label">Otomatik</span>
-          </label>
+        // 1. Canlı Maç Analizi (Üst Liste)
+        const analyses = liveMatches.map(m => {
+            const league = m[36] || [];
+            if (sport !== "all" && String(league[11]) !== String(sport)) return null;
+            const h = parseFloat(String(m[18] || "").replace(',', '.'));
+            const d = parseFloat(String(m[19] || "").replace(',', '.'));
+            const a = parseFloat(String(m[20] || "").replace(',', '.'));
+            if (!h || !d || !a || h < 1.01) return null;
 
-          <button class="refresh-btn" id="refreshButton" type="button">
-            <i data-lucide="refresh-cw"></i>
-            <span>Yenile</span>
-          </button>
-        </div>
-      </section>
+            const closestMatches = history.filter(h2 => 
+                Math.abs(h2.home_odds - h) / h < t && Math.abs(h2.draw_odds - d) / d < t && Math.abs(h2.away_odds - a) / a < t
+            );
 
-      <!-- Metrics row -->
-      <section class="metrics-row" aria-label="Özet istatistikler">
-        <article class="metric-card glass-card">
-          <div class="metric-icon" style="--c:#6366f1"><i data-lucide="calendar-days"></i></div>
-          <div class="metric-body">
-            <span class="metric-label">Bugünkü Maç</span>
-            <strong class="metric-value" id="metricMatches">—</strong>
-          </div>
-        </article>
-        <article class="metric-card glass-card">
-          <div class="metric-icon" style="--c:#10b981"><i data-lucide="percent"></i></div>
-          <div class="metric-body">
-            <span class="metric-label">Oranlı Maç</span>
-            <strong class="metric-value" id="metricOdds">—</strong>
-          </div>
-        </article>
-        <article class="metric-card glass-card">
-          <div class="metric-icon" style="--c:#f59e0b"><i data-lucide="archive"></i></div>
-          <div class="metric-body">
-            <span class="metric-label">Geçmiş Örnek</span>
-            <strong class="metric-value" id="metricHistory">—</strong>
-          </div>
-        </article>
-        <article class="metric-card glass-card">
-          <div class="metric-icon" style="--c:#ec4899"><i data-lucide="hash"></i></div>
-          <div class="metric-body">
-            <span class="metric-label">Kod Grubu</span>
-            <strong class="metric-value" id="metricCodeGroups">—</strong>
-          </div>
-        </article>
-        <article class="metric-card glass-card">
-          <div class="metric-icon" style="--c:#14b8a6"><i data-lucide="calculator"></i></div>
-          <div class="metric-body">
-            <span class="metric-label">Oran Toplamı Grubu</span>
-            <strong class="metric-value" id="metricOddsTotalGroups">—</strong>
-          </div>
-        </article>
-        <article class="metric-card glass-card">
-          <div class="metric-icon" style="--c:#8b5cf6"><i data-lucide="clock"></i></div>
-          <div class="metric-body">
-            <span class="metric-label">Son Güncelleme</span>
-            <strong class="metric-value" id="metricUpdated">—</strong>
-          </div>
-        </article>
-      </section>
+            return {
+                target: {
+                    id: m[0], home: m[2], away: m[4], time: m[16] || "00:00", date: m[35] || "",
+                    league: { name: league[3] || "", country: league[1] || "" },
+                    odds: { one: h, draw: d, two: a, under25: 1.80, over25: 1.90 },
+                    statusText: m[6] || "", finished: /(MS|UZ|PEN)/.test(m[6])
+                },
+                summary: {
+                    count: closestMatches.length,
+                    homeWin: Math.round((closestMatches.filter(c => c.home_score > c.away_score).length / closestMatches.length) * 100) || 0,
+                    draw: Math.round((closestMatches.filter(c => c.home_score === c.away_score).length / closestMatches.length) * 100) || 0,
+                    awayWin: Math.round((closestMatches.filter(c => c.home_score < c.away_score).length / closestMatches.length) * 100) || 0,
+                    averageGoals: 2.5, signal: closestMatches.length > 0 ? 'Tamam' : 'Yok', confidence: 'Orta'
+                },
+                closest: closestMatches.slice(0, 10).map(c => ({
+                    id: c.id, home: c.home_team, away: c.away_team, date: c.date,
+                    odds: { one: c.home_odds, draw: c.draw_odds, two: c.away_odds },
+                    scoreText: `${c.home_score}-${c.away_score}`, similarity: 100
+                }))
+            };
+        }).filter(x => x !== null);
 
-      <!-- View tabs -->
-      <nav class="view-tabs glass-card" role="tablist" aria-label="Görünüm">
-        <button class="view-tab active" type="button" role="tab" aria-selected="true" data-view="code">
-          <i data-lucide="hash"></i>
-          <span>Kod Toplamı</span>
-        </button>
-        <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="analysis">
-          <i data-lucide="radar"></i>
-          <span>Maç Analizi</span>
-        </button>
-        <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="odds">
-          <i data-lucide="calculator"></i>
-          <span>Oran Toplamı</span>
-        </button>
-      </nav>
+        // 2. Oran Toplamları (Bugünkü Maçları Grupla)
+        const oddsTotalMap = new Map();
+        liveMatches.forEach(m => {
+            const h = parseFloat(String(m[18] || "").replace(',', '.'));
+            const d = parseFloat(String(m[19] || "").replace(',', '.'));
+            const a = parseFloat(String(m[20] || "").replace(',', '.'));
+            if (!h || !d || !a || h < 1.01) return;
 
-      <!-- === KOD TOPLAMI PANELİ === -->
-      <section class="tab-panel" data-view-panel="code">
-        <div class="panel-header glass-card">
-          <div class="panel-header-left">
-            <div class="panel-icon" style="--c:#ec4899"><i data-lucide="hash"></i></div>
-            <div>
-              <h2>İddaa Kod Toplamı</h2>
-              <p id="codeGroupsLabel">Yükleniyor…</p>
-            </div>
-          </div>
-        </div>
-        <div class="code-groups-grid" id="codeGroups"></div>
-      </section>
+            const sum = (h + d + a).toFixed(2);
+            if (!oddsTotalMap.has(sum)) oddsTotalMap.set(sum, { totalText: sum, count: 0, matches: [] });
+            const g = oddsTotalMap.get(sum);
+            g.count++;
+            g.matches.push({
+                id: m[0], home: m[2], away: m[4], time: m[16] || "00:00",
+                scoreText: m[12] !== undefined ? `${m[12]}-${m[13]}` : "0-0",
+                odds: { one: h, draw: d, two: a }
+            });
+        });
 
-      <!-- === ORAN TOPLAMI PANELİ === -->
-      <section class="tab-panel hidden" data-view-panel="odds">
-        <div class="panel-header glass-card">
-          <div class="panel-header-left">
-            <div class="panel-icon" style="--c:#14b8a6"><i data-lucide="calculator"></i></div>
-            <div>
-              <h2>Oran Toplamları Aynı Maçlar</h2>
-              <p id="oddsTotalGroupsLabel">Yükleniyor…</p>
-            </div>
-          </div>
-        </div>
-        <div class="code-groups-grid" id="oddsTotalGroups"></div>
-      </section>
+        const oddsTotalGroups = Array.from(oddsTotalMap.values())
+            .filter(g => g.count > 1) // Sadece 1'den fazla maci olan toplamları goster
+            .sort((a, b) => b.count - a.count);
 
-      <!-- === MAÇ ANALİZİ PANELİ === -->
-      <section class="workspace tab-panel hidden" data-view-panel="analysis">
-        <!-- Match list sidebar -->
-        <aside class="match-sidebar glass-card">
-          <div class="sidebar-header">
-            <div class="sidebar-title">
-              <i data-lucide="list"></i>
-              <h2>Maçlar</h2>
-            </div>
-            <p id="matchCountLabel">—</p>
-          </div>
-          <div class="search-wrap">
-            <i data-lucide="search"></i>
-            <input id="searchInput" type="search" placeholder="Takım veya lig ara…">
-          </div>
-          <div class="match-list" id="matchList"></div>
-        </aside>
+        // 3. Kod Toplamları (Arşivden - Kodlar sadece arşivde var)
+        const codeSumMap = new Map();
+        history.forEach(m => {
+            if (!m.iddaa_code_sum) return;
+            const s = m.iddaa_code_sum;
+            if (!codeSumMap.has(s)) codeSumMap.set(s, { sum: s, count: 0, codes: new Set(), matches: [] });
+            const g = codeSumMap.get(s);
+            g.count++; g.codes.add(m.iddaa_code);
+            g.matches.push({ id: m.id, home: m.home_team, away: m.away_team, time: 'Arşiv', scoreText: `${m.home_score}-${m.away_score}`, iddaaCode: m.iddaa_code });
+        });
+        const iddaaCodeGroups = Array.from(codeSumMap.values()).filter(g => g.count > 1).sort((a, b) => b.count - a.count).slice(0, 20);
 
-        <!-- Analysis detail panel -->
-        <section class="analysis-detail glass-card" aria-live="polite">
-          <!-- Empty state -->
-          <div class="empty-state" id="emptyState">
-            <div class="empty-radar">
-              <div class="radar-ring r1"></div>
-              <div class="radar-ring r2"></div>
-              <div class="radar-ring r3"></div>
-              <i data-lucide="radar"></i>
-            </div>
-            <h2>Maç Seçin</h2>
-            <p>Soldan bir maç seçin; benzer oran profilleri ve istatistikler burada görünür.</p>
-          </div>
+        res.json({ ok: true, analyses, iddaaCodeGroups, oddsTotalGroups, coverage: { targetMatches: analyses.length, updatedAt: lastUpdate } });
+    });
+});
 
-          <!-- Analysis content -->
-          <div class="analysis-content hidden" id="analysisContent">
-            <!-- Match hero -->
-            <div class="match-hero">
-              <div class="hero-left">
-                <span class="league-badge" id="selectedLeague">—</span>
-                <h2 id="selectedTitle">—</h2>
-                <p id="selectedMeta" class="hero-meta">—</p>
-              </div>
-              <div class="signal-card">
-                <span class="signal-confidence" id="signalConfidence">—</span>
-                <strong class="signal-text" id="signalText">—</strong>
-              </div>
-            </div>
-
-            <!-- Odds strip -->
-            <div class="odds-strip" id="oddsStrip"></div>
-
-            <!-- Stats grid -->
-            <div class="stats-grid">
-              <article class="stat-block glass-card">
-                <div class="stat-block-header">
-                  <h3><i data-lucide="bar-chart-2"></i> Sonuç Eğilimi</h3>
-                  <span class="badge" id="sampleBadge">0 örnek</span>
-                </div>
-                <div class="bars" id="outcomeBars"></div>
-              </article>
-
-              <article class="stat-block glass-card">
-                <div class="stat-block-header">
-                  <h3><i data-lucide="goal"></i> Gol Pazarı</h3>
-                  <span class="badge" id="goalBadge">—</span>
-                </div>
-                <div class="bars" id="goalBars"></div>
-              </article>
-            </div>
-
-            <!-- Similar matches table -->
-            <article class="similar-block glass-card">
-              <div class="stat-block-header">
-                <h3><i data-lucide="git-branch"></i> En Yakın Benzer Maçlar</h3>
-                <span class="badge" id="closestBadge">—</span>
-              </div>
-              <div class="similar-table" id="similarTable"></div>
-            </article>
-
-            <p class="disclaimer">Veriler Mackolik livedata akışından okunur. Oran benzerliği istatistiktir; kesin sonuç veya yatırım tavsiyesi değildir.</p>
-          </div>
-        </section>
-      </section>
-    </main>
-
-    <!-- Loading overlay -->
-    <div class="loading-bar" id="loadingBar" aria-hidden="true">
-      <div class="loading-progress"></div>
-    </div>
-  </body>
-</html>
+app.listen(port, () => { console.log(`Oran Radar Cloud Active on ${port}`); });
