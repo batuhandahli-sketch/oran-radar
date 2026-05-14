@@ -4,7 +4,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 const app = express();
-const port = process.env.PORT || 5173;
+const port = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(express.json());
@@ -32,7 +32,7 @@ async function updateLiveFeed() {
         const data = await response.json();
         if (data && data.m) {
             currentLiveMatches = data.m;
-            console.log(`[CANLI] Veriler tazelendi: ${currentLiveMatches.length} maç (${new Date().toLocaleTimeString('tr-TR')})`);
+            console.log(`[CANLI] Veriler tazelendi: ${currentLiveMatches.length} maç`);
         }
     } catch (e) { console.error("Veri hatası:", e.message); }
 }
@@ -66,29 +66,21 @@ app.get('/api/analyze', async (req, res) => {
         const targetMatches = (targetDate === todayStr) ? currentLiveMatches : await fetchHistorical(targetDate);
 
         db.all(`SELECT * FROM matches WHERE home_odds > 0 ORDER BY id DESC LIMIT 5000`, (err, history) => {
-            if (err) {
-                console.error("DB Hatası:", err.message);
-                return res.status(500).json({ ok: false, error: "Veritabanı hatası" });
-            }
+            if (err) throw err;
 
             const analyses = (targetMatches || []).map(m => {
                 if (!m || !m[36]) return null;
-                const league = m[36] || [];
-                if (sport !== "all" && String(league[11]) !== String(sport)) return null;
-                
                 const h = parseFloat(String(m[18] || "").replace(',', '.'));
                 const d = parseFloat(String(m[19] || "").replace(',', '.'));
                 const a = parseFloat(String(m[20] || "").replace(',', '.'));
                 if (!h || !d || !a || h < 1.01) return null;
 
-                const closestMatches = (history || []).filter(h2 => 
-                    Math.abs(h2.home_odds - h) / h < t && Math.abs(h2.draw_odds - d) / d < t && Math.abs(h2.away_odds - a) / a < t
-                );
+                const closestMatches = (history || []).filter(h2 => Math.abs(h2.home_odds - h) / h < t && Math.abs(h2.draw_odds - d) / d < t && Math.abs(h2.away_odds - a) / a < t);
 
                 return {
                     target: {
                         id: m[0], home: m[2], away: m[4], time: m[16] || "00:00", date: m[35] || "",
-                        league: { name: league[3] || "", country: league[1] || "" },
+                        league: { name: m[36][3] || "", country: m[36][1] || "" },
                         odds: { one: h, draw: d, two: a, under25: 1.80, over25: 1.90 },
                         statusText: m[6] || "", finished: /(MS|UZ|PEN)/.test(m[6])
                     },
@@ -97,7 +89,7 @@ app.get('/api/analyze', async (req, res) => {
                         homeWin: Math.round((closestMatches.filter(c => c.home_score > c.away_score).length / closestMatches.length) * 100) || 0,
                         draw: Math.round((closestMatches.filter(c => c.home_score === c.away_score).length / closestMatches.length) * 100) || 0,
                         awayWin: Math.round((closestMatches.filter(c => c.home_score < c.away_score).length / closestMatches.length) * 100) || 0,
-                        signal: closestMatches.length > 0 ? 'Tamam' : 'Yok', confidence: 'Orta'
+                        signal: closestMatches.length > 0 ? 'Analiz Hazır' : 'Örnek Yok', confidence: 'Orta'
                     },
                     closest: closestMatches.slice(0, 10).map(c => ({
                         id: c.id, home: c.home_team, away: c.away_team, date: c.date, scoreText: `${c.home_score}-${c.away_score}`, similarity: 100,
@@ -109,7 +101,6 @@ app.get('/api/analyze', async (req, res) => {
             const oddsTotalMap = new Map();
             const codeSumMap = new Map();
             (targetMatches || []).forEach(m => {
-                if (!m) return;
                 const h = parseFloat(String(m[18] || "").replace(',', '.'));
                 const d = parseFloat(String(m[19] || "").replace(',', '.'));
                 const a = parseFloat(String(m[20] || "").replace(',', '.'));
@@ -130,18 +121,9 @@ app.get('/api/analyze', async (req, res) => {
                 }
             });
 
-            res.json({ 
-                ok: true, 
-                analyses, 
-                iddaaCodeGroups: Array.from(codeSumMap.values()).filter(g => g.count > 1).sort((a,b) => b.count - a.count).slice(0, 20), 
-                oddsTotalGroups: Array.from(oddsTotalMap.values()).filter(g => g.count > 1).sort((a,b) => b.count - a.count), 
-                coverage: { targetMatches: analyses.length, updatedAt: new Date().toLocaleTimeString('tr-TR') } 
-            });
+            res.json({ ok: true, analyses, iddaaCodeGroups: Array.from(codeSumMap.values()).filter(g => g.count > 1).sort((a,b) => b.count-a.count), oddsTotalGroups: Array.from(oddsTotalMap.values()).filter(g => g.count > 1).sort((a,b) => b.count-a.count), coverage: { targetMatches: analyses.length, updatedAt: new Date().toLocaleTimeString('tr-TR') } });
         });
-    } catch (globalErr) {
-        console.error("KRİTİK HATA:", globalErr.message);
-        res.status(500).json({ ok: false, error: "Sunucu hatası oluştu" });
-    }
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-app.listen(port, () => { console.log(`Oran Radar Safe-Mode Active on ${port}`); });
+app.listen(port, () => { console.log(`Oran Radar Cloud Active on ${port}`); });
